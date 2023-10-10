@@ -111,10 +111,11 @@ fi
 source "$WEBINTAKE_INIT_PATH"
 
 # Variables
-declare SCRIPT_FILE
-SCRIPT_FILE=$(realpath "$0")
-export SCRIPT_DIR="${SCRIPT_FILE%/*}"
+#declare SCRIPT_FILE
+#SCRIPT_FILE=$(realpath "$0")
+#export SCRIPT_DIR="${SCRIPT_FILE%/*}"
 
+declare CURRENT_DIR="$PWD"
 declare TODAY=$(date '+%Y-%m-%d')
 declare GPROOT=$(ps -ef | grep middleware1 | grep -oP '(?<=Dfr.sgf.gp.root=)[^ ]+')
 declare GPROOT_PARENT=$(dirname "$GPROOT")
@@ -129,7 +130,8 @@ declare WEBINTAKE_CURRENT_VERSION=$(unzip -p ${GPROOT}/app/webintake/wiserver.wa
 declare COMPARE_VERSION="5.2.0"
 
 # Add log file to the script
-exec &> "$LOG_FILE"
+#exec &> "$LOG_FILE"
+exec 2> >( tee -a "$LOG_FILE" ) 3>&1 1>>"$LOG_FILE"
 
 declare -A WEBINTAKE_SEMVER=()
 
@@ -218,40 +220,54 @@ EOF
 
 # Fix FK_JAC_SIT 
 WitQueries() {
-  local db_user="$1"
-  local db_password="$2"
-  local db_host="$3"
-  local db_port="$4"
-  local oracle_service_name="$5"
+  local DB_USER="$1"
+  local DB_PASSWORD="$2"
+  local DB_HOST="$3"
+  local DB_PORT="$4"
+  local ORACLE_SERVICE_NAME="$5"
   
-  local delete_jaas_query="delete from jaas_config where site_code=0;"
-  local insert_sites_query="insert into SITES select 0, 'Console adm site', WEBINTAKE_DB_VERSION, COMPRESSRESPONSELIMIT, SESSIONLOGPATH, ENVLOGPATH, ALGORITHMENCRYPTION, REFERENTIAL_TYPE, FLUSHSIZE, 'CONSOLE', SIT_SECU_MANAGED_BY_GP, SIT_COMPRESS_REPORT, SIT_COMPRESS_RESPONSE, SIT_CLIENT_LIVE_DELAY, SIT_SERVER_LIVE_DELAY, SIT_FLUSH_DELAY, SIT_CLIENT_TIMEOUT from SITES where SITE_CODE=1;"
-  local insert_jaas_query="insert into JAAS_CONFIG select HIBERNATE_SEQUENCE.nextval, 0, 'Console', 'fr.sgf.wit.security.login.module.GPRoleLoginModule', 'REQUIRED' from DUAL;"
-  local commit_query="commit;"
+  local DELETE_JAAS_QUERY="DELETE FROM jaas_config WHERE SITE_CODE=0;"
+  local INSERT_JAAS_QUERY="INSERT INTO JAAS_CONFIG SELECT HIBERNATE_SEQUENCE.NEXTVAL, 0, 'Console', 'fr.sgf.wit.security.login.module.GPRoleLoginModule', 'REQUIRED' FROM DUAL;"
+  local INSERT_SITES_QUERY="INSERT INTO SITES SELECT 0, 'Console adm site', WEBINTAKE_DB_VERSION, COMPRESSRESPONSELIMIT, SESSIONLOGPATH, ENVLOGPATH, ALGORITHMENCRYPTION, REFERENTIAL_TYPE, FLUSHSIZE, 'CONSOLE', SIT_SECU_MANAGED_BY_GP, SIT_COMPRESS_REPORT, SIT_COMPRESS_RESPONSE, SIT_CLIENT_LIVE_DELAY, SIT_SERVER_LIVE_DELAY, SIT_FLUSH_DELAY, SIT_CLIENT_TIMEOUT FROM SITES WHERE SITE_CODE=1;"
+  local COMMIT_QUERY="COMMIT;"
   
   # Execute the SQL queries
-  echo "${delete_jaas_query}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
-  echo "${insert_sites_query}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
-  echo "${insert_jaas_query}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
-  echo "${commit_query}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
+  echo "${DELETE_JAAS_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${INSERT_JAAS_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${INSERT_SITES_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${COMMIT_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
 }
 
 # Fix distiller PDF files
 CoreQueries() {
-  local db_user="$1"
-  local db_password="$2"
-  local db_host="$3"
-  local db_port="$4"
-  local oracle_service_name="$5"
+  local DB_USER="$1"
+  local DB_PASSWORD="$2"
+  local DB_HOST="$3"
+  local DB_PORT="$4"
+  local ORACLE_SERVICE_NAME="$5"
   
-  local delete_old_param="DELETE from PARAMETRE_CHAMP_TRAITEMENT where CODE_TRAITEMENT='TOUS' and CRITERE_SAISIE_1='.' and CRITERE_SAISIE_2='.' and NOM_CHAMP='Runtime.distiller';"
-  local insert_new_query="INSERT into PARAMETRE_CHAMP_TRAITEMENT (CODE_TRAITEMENT,CRITERE_SAISIE_1,CRITERE_SAISIE_2,NOM_CHAMP,LIB_PARAMETRE_CHAMP_C,LIB_PARAMETRE_CHAMP_L,VALEUR_PAR_DEFAUT,TYPE_SAISIE,CODE_GESTION,KRONECKER_1,KRONECKER_2) values ('TOUS','. ','. ','Runtime.distiller',' ',' ',' ',' ','O ','0','0');"
-  local commit_query="commit;"
+  local DELETE_OLD_PARAM="DELETE FROM PARAMETRE_CHAMP_TRAITEMENT WHERE CODE_TRAITEMENT='TOUS' AND CRITERE_SAISIE_1='.' AND CRITERE_SAISIE_2='.' AND NOM_CHAMP='Runtime.distiller';"
+  local INSERT_NEW_QUERY="INSERT INTO PARAMETRE_CHAMP_TRAITEMENT (CODE_TRAITEMENT,CRITERE_SAISIE_1,CRITERE_SAISIE_2,NOM_CHAMP,LIB_PARAMETRE_CHAMP_C,LIB_PARAMETRE_CHAMP_L,VALEUR_PAR_DEFAUT,TYPE_SAISIE,CODE_GESTION,KRONECKER_1,KRONECKER_2) VALUES ('TOUS','. ','. ','Runtime.distiller',' ',' ',' ',' ','O ','0','0');"
+  local COMMIT_QUERY="COMMIT;"
   
   # Execute the SQL queries
-  echo "${delete_old_param}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
-  echo "${insert_new_query}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
-  echo "${commit_query}" | sqlplus "${db_user}/${db_password}@${db_host}:${db_port}/${oracle_service_name}"
+  echo "${DELETE_OLD_PARAM}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${INSERT_NEW_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${COMMIT_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+}
+
+
+# Function to check for errors in the log file
+CheckErrors() {
+  if grep -qi "error" "$1"; then
+    echo "There are errors to check in the log file ($1)." | tee /dev/fd/3
+  else
+    echo "The installation completed successfully. No errors found in the log file ($LOG_FILE)." | tee /dev/fd/3
+    echo " " | tee /dev/fd/3
+    echo -e "\e[32m####################################################################\e[0m" | tee /dev/fd/3
+    echo -e "\e[32mInstallation of webintake ${WEBINTAKE_VERSION} finished with Success\e[0m" | tee /dev/fd/3
+    echo -e "\e[32m####################################################################\e[0m" | tee /dev/fd/3
+  fi
 }
 
 ########
@@ -342,10 +358,12 @@ if [[ "$WEBINTAKE_CURRENT_VERSION" < "$COMPARE_VERSION" ]]; then
 
   echo "------> CORE queries to distill PDF files"
   CoreQueries "${runtime_db_user}" "${runtime_db_password}" "${runtime_db_host}" "${runtime_db_port}" "${runtime_db_oracle_service_name}"
+
 fi
 
 echo "------> Launching Webintake installation"
 installWebintake "${INSTALL_KEYCLOAK}" "Y" "${DROP_INIT_DB}"
+
 
 #echo "------> Creating symbolic link: webintake -> ${WEBINTAKE_INSTALLATION_PATH}"
 #cd "$HOME" || exit 1
@@ -362,6 +380,6 @@ else
   echo "The installation directory does not exist."
 fi
 
-echo -e "\e[32m####################################################################\e[0m"
-echo -e "\e[32mInstallation of webintake ${WEBINTAKE_VERSION} finished with Success\e[0m"
-echo -e "\e[32m####################################################################\e[0m"
+#Verify Installation
+CheckErrors "${CURRENT_DIR}/${$LOG_FILE}"
+

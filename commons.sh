@@ -15,7 +15,7 @@ export webintake_db_host=GP4-DB-HOST
 export webintake_db_port=1521
 export webintake_db_user=WEBINTAKE
 export webintake_db_password=WEBINTAKE
-export webintake_db_oracle_service_name=GPCORE
+export webintake_db_oracle_service_name=GPUTL
 #In case of upgrading from 5.1.X to 5.2.X ONLY
 export runtime_db_host=GP4-DB-HOST
 export runtime_db_port=1521
