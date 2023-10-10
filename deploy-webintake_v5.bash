@@ -244,7 +244,7 @@ CoreQueries() {
   local db_port="$4"
   local oracle_service_name="$5"
   
-  local delete_old_param="ELETE from PARAMETRE_CHAMP_TRAITEMENT where CODE_TRAITEMENT='TOUS' and CRITERE_SAISIE_1='.' and CRITERE_SAISIE_2='.' and NOM_CHAMP='Runtime.distiller';"
+  local delete_old_param="DELETE from PARAMETRE_CHAMP_TRAITEMENT where CODE_TRAITEMENT='TOUS' and CRITERE_SAISIE_1='.' and CRITERE_SAISIE_2='.' and NOM_CHAMP='Runtime.distiller';"
   local insert_new_query="INSERT into PARAMETRE_CHAMP_TRAITEMENT (CODE_TRAITEMENT,CRITERE_SAISIE_1,CRITERE_SAISIE_2,NOM_CHAMP,LIB_PARAMETRE_CHAMP_C,LIB_PARAMETRE_CHAMP_L,VALEUR_PAR_DEFAUT,TYPE_SAISIE,CODE_GESTION,KRONECKER_1,KRONECKER_2) values ('TOUS','. ','. ','Runtime.distiller',' ',' ',' ',' ','O ','0','0');"
   local commit_query="commit;"
   
