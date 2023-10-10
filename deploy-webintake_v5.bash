@@ -21,7 +21,7 @@
 # History
 # R&D: N/A          Internal script provided by R&D for internal installation
 # AJA: 15/09/2023	Adapt the script to the requirements of the webintake deployment automation project
-# AJA: 15/09/2023	Add fix FK_JAC_SIT error
+# AJA: 15/09/2023	Add fix FK_JAC_SIT 
 # AJA: 10/10/2023	Add fix distiller PDF files
 #================== Mail address =========================================
 
@@ -216,7 +216,7 @@ ${COMMON_PROPERTIES_FILE}
 EOF
 }
 
-# Fix FK_JAC_SIT error
+# Fix FK_JAC_SIT 
 WitQueries() {
   local db_user="$1"
   local db_password="$2"
@@ -334,9 +334,9 @@ if [[ "${DROP_INIT_DB}" == "Y" ]]; then
 fi
 
 
-# Fix FK_JAC_SIT error
+# Fix FK_JAC_SIT 
 if [[ "$WEBINTAKE_CURRENT_VERSION" < "$COMPARE_VERSION" ]]; then
-  echo "------> Fix FK_JAC_SIT error"
+  echo "------> Fix FK_JAC_SIT"
   source ${GPROOT_OLD}/install/scripts/database/liquibase/env.sh
   WitQueries "${webintake_db_user}" "${webintake_db_password}" "${webintake_db_host}" "${webintake_db_port}" "${webintake_db_oracle_service_name}"
 
