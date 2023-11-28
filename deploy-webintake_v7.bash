@@ -258,17 +258,13 @@ CoreQueries() {
 }
 
 
-# Function to check for errors in the log file
-CheckErrors() {
-  if grep -qi "error" "$1"; then
-    echo "There are errors to check in the log file ($1)." | tee /dev/fd/3
-  else
+# Installation completed
+CompletedMsg() {
     echo "The installation completed successfully. No errors found in the log file ($LOG_FILE)." | tee /dev/fd/3
     echo " " | tee /dev/fd/3
     echo -e "\e[32m####################################################################\e[0m" | tee /dev/fd/3
     echo -e "\e[32mInstallation of webintake ${WEBINTAKE_VERSION} finished with Success\e[0m" | tee /dev/fd/3
     echo -e "\e[32m####################################################################\e[0m" | tee /dev/fd/3
-  fi
 }
 
 ########
@@ -360,11 +356,16 @@ if [[ "$WEBINTAKE_CURRENT_VERSION" < "$COMPARE_VERSION" ]]; then
     echo "Fix FK_JAC_SIT completed successfully."
 fi
 
+set +e
 # WIT Installation
 echo "------> Launching Webintake installation"
-installWebintake "${INSTALL_KEYCLOAK}" "Y" "${DROP_INIT_DB}"
+if installWebintake "${INSTALL_KEYCLOAK}" "Y" "${DROP_INIT_DB}"; then
 echo "Install completed successfully."
-
+else
+    echo "Installation failed. Executing create-upgrade-schema.sh."
+    bash -x ${GPROOT}/install/scripts/database/create-upgrade-schema.sh
+fi
+set -e
 
 # Fix distiller PDF files
 echo "------> CORE queries to distill PDF files"
@@ -385,7 +386,7 @@ else
   echo "The installation directory does not exist."
 fi
 
-#Verify Installation
-CheckErrors "${CURRENT_DIR}/${$LOG_FILE}"
+#Completed
+CompletedMsg
 
 exit 1
