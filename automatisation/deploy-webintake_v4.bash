@@ -6,7 +6,7 @@
 # Creation date: N/A
 # Need file: N/A
 #
-# How To launch: ./deploy-webintake-kit.bash $WEBINTAKE_INSTALLATION_PATH $WEBINTAKE_INIT_PATH $WEBINTAKE_VERSION $INSTALL_KEYCLOAK $DROP_INIT_DB
+# How To launch: ./deploy-webintake-kit.sh $WEBINTAKE_INSTALLATION_PATH $WEBINTAKE_INIT_PATH $WEBINTAKE_VERSION $INSTALL_KEYCLOAK $DROP_INIT_DB
 #
 # Arguments:
 # - $1: Webintake installation path
@@ -19,8 +19,11 @@
 # - --help: Display script usage
 #
 # History
-# R&D: N/A          Internal script provided by R&D for internal installation
-# AJA: 15/09/2022	Adapt the script to the requirements of the webintake deployment automation project
+# R&D: N/A        Internal script provided by R&D for internal installation
+# AJA: 15/09/2023	Adapt the script to the requirements of the webintake deployment automation project
+# AJA: 15/09/2023	Add fix FK_JAC_SIT 
+# AJA: 10/10/2023	Add fix distiller PDF files
+# AJA: 17/10/2023	Add fix versions 5.1.X
 #================== Mail address =========================================
 
 
@@ -29,6 +32,7 @@
 set -e
 # Exit if a variable is unset
 set -u
+
 
 # Display script usage
 usage() {
@@ -42,7 +46,7 @@ usage() {
   echo "Possible options:"
   echo " - --help: Display script usage"
   echo "Command examples:"
-  echo -e "\e[32m - ./deploy-webintake-kit.bash /path/to/webintake /path/to/commons.sh 5.2.2 N N\e[0m"
+  echo -e "\e[32m - ./deploy-webintake-kit.sh /path/to/webintake /path/to/commons.sh 5.2.2 N N\e[0m"
 }
 
 # Parse arguments
@@ -109,10 +113,11 @@ fi
 source "$WEBINTAKE_INIT_PATH"
 
 # Variables
-declare SCRIPT_FILE
-SCRIPT_FILE=$(realpath "$0")
-export SCRIPT_DIR="${SCRIPT_FILE%/*}"
+#declare SCRIPT_FILE
+#SCRIPT_FILE=$(realpath "$0")
+#export SCRIPT_DIR="${SCRIPT_FILE%/*}"
 
+declare CURRENT_DIR="$PWD"
 declare TODAY=$(date '+%Y-%m-%d')
 declare GPROOT=$(ps -ef | grep middleware1 | grep -oP '(?<=Dfr.sgf.gp.root=)[^ ]+')
 declare GPROOT_PARENT=$(dirname "$GPROOT")
@@ -122,9 +127,13 @@ declare WEBINTAKE_KIT_PATH="${INSTALL_DIR}/${KIT_FILENAME%%.tar}"
 declare COMMON_PROPERTIES_FILE="${WEBINTAKE_KIT_PATH}/conf/common.properties.orig.full"
 #declare LOG_FILE="${INSTALL_DIR}/upgrade_wit_$(date '+%Y-%m-%d_%H-%M-%S').log" # Added LOG_FILE variable
 declare LOG_FILE="upgrade_wit_$(date '+%Y-%m-%d_%H-%M-%S').log" # Added LOG_FILE variable
+#declare WEBINTAKE_CURRENT_VERSION=$(grep -o 'Application Version | [0-9]\+\.[0-9]\+\.[0-9]\+' "${GPROOT}/logs/webintake/middleware1.log" "${GPROOT}/logs/webintake/webintake-server1.log" 2>/dev/null | tail -n 1 | awk -F '|' '{gsub(/ /, "", $2); print $2}')
+declare WEBINTAKE_CURRENT_VERSION=$(unzip -p ${GPROOT}/app/webintake/wiserver.war META-INF/MANIFEST.MF | grep Implementation-Version | cut -d ' ' -f2)
+declare COMPARE_VERSION="5.2.0"
 
 # Add log file to the script
 exec &> "$LOG_FILE"
+#exec 2> >( tee -a "$LOG_FILE" ) 3>&1 1>>"$LOG_FILE"
 
 declare -A WEBINTAKE_SEMVER=()
 
@@ -178,10 +187,10 @@ dropSchema() {
   local ORACLE_ENV_FILE="${GPROOT}/install/scripts/database/SQL/Oracle/env-${SCHEMA}-oracle.sh"
   local POSTGRES_ENV_FILE="${GPROOT}/install/scripts/database/SQL/Postgres/env-${SCHEMA}-postgres.sh"
 
-  echo "------> Populating ${SCHEMA} SQL env files with passwords"
+  echo -e "------> Populating ${SCHEMA} SQL env files with passwords"
   sed -e "s/##TO_CHANGE##/${SCHEMA_PASSWORD}/" -i "${ORACLE_ENV_FILE}" "${POSTGRES_ENV_FILE}"
 
-  echo "------> Dropping ${SCHEMA} schema"
+  echo -e "------> Dropping ${SCHEMA} schema"
   "${GPROOT}/install/scripts/database/drop-schema.sh" "${SCHEMA}"
 }
 
@@ -211,13 +220,69 @@ ${COMMON_PROPERTIES_FILE}
 EOF
 }
 
+
+# resumeInstallation
+resumeInstallation() {
+  "${GPROOT}/install/setup/setup.sh" --no-interactive << EOF
+${GPROOT}
+EOF
+}
+
+# Fix FK_JAC_SIT 
+WitQueries() {
+  local DB_USER="$1"
+  local DB_PASSWORD="$2"
+  local DB_HOST="$3"
+  local DB_PORT="$4"
+  local ORACLE_SERVICE_NAME="$5"
+  
+  local DELETE_JAAS_QUERY="DELETE FROM jaas_config WHERE SITE_CODE=0;"
+  INSERT_SITES_QUERY="INSERT INTO SITES SELECT 0, 'Console adm site', WEBINTAKE_DB_VERSION, COMPRESSRESPONSELIMIT, SESSIONLOGPATH, ENVLOGPATH, ALGORITHMENCRYPTION, REFERENTIAL_TYPE, FLUSHSIZE, 'CONSOLE', SIT_SECU_MANAGED_BY_GP, SIT_COMPRESS_REPORT, SIT_COMPRESS_RESPONSE, SIT_CLIENT_LIVE_DELAY, SIT_SERVER_LIVE_DELAY, SIT_FLUSH_DELAY, SIT_CLIENT_TIMEOUT FROM SITES WHERE SITE_CODE=1;"
+  local INSERT_JAAS_QUERY="INSERT INTO JAAS_CONFIG SELECT HIBERNATE_SEQUENCE.NEXTVAL, 0, 'Console', 'fr.sgf.wit.security.login.module.GPRoleLoginModule', 'REQUIRED' FROM DUAL;"  
+  local COMMIT_QUERY="COMMIT;"
+  
+  # Execute the SQL queries
+  echo "${DELETE_JAAS_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${INSERT_SITES_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${INSERT_JAAS_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${COMMIT_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+}
+
+# Fix distiller PDF files
+CoreQueries() {
+  local DB_USER="$1"
+  local DB_PASSWORD="$2"
+  local DB_HOST="$3"
+  local DB_PORT="$4"
+  local ORACLE_SERVICE_NAME="$5"
+  
+  local DELETE_OLD_PARAM="DELETE FROM PARAMETRE_CHAMP_TRAITEMENT WHERE CODE_TRAITEMENT='TOUS' AND CRITERE_SAISIE_1='.' AND CRITERE_SAISIE_2='.' AND NOM_CHAMP='Runtime.distiller';"
+  local INSERT_NEW_QUERY="INSERT INTO PARAMETRE_CHAMP_TRAITEMENT (CODE_TRAITEMENT,CRITERE_SAISIE_1,CRITERE_SAISIE_2,NOM_CHAMP,LIB_PARAMETRE_CHAMP_C,LIB_PARAMETRE_CHAMP_L,VALEUR_PAR_DEFAUT,TYPE_SAISIE,CODE_GESTION,KRONECKER_1,KRONECKER_2) VALUES ('TOUS','. ','. ','Runtime.distiller',' ',' ',' ',' ','O ','0','0');"
+  local COMMIT_QUERY="COMMIT;"
+  
+  # Execute the SQL queries
+  echo "${DELETE_OLD_PARAM}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${INSERT_NEW_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+  echo "${COMMIT_QUERY}" | sqlplus "${DB_USER}/${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${ORACLE_SERVICE_NAME}"
+}
+
+
+# Installation completed
+CompletedMsg() {
+    echo -e "The installation completed successfully. No errors found in the log file ($LOG_FILE)." | tee /dev/fd/3
+    echo -e " " | tee /dev/fd/3
+    echo -e "\e[32m####################################################################\e[0m" | tee /dev/fd/3
+    echo -e "\e[32mInstallation of webintake ${WEBINTAKE_VERSION} finished with Success\e[0m" | tee /dev/fd/3
+    echo -e "\e[32m####################################################################\e[0m" | tee /dev/fd/3
+}
+
 ########
 # Main #
 ########
 
-echo "------> Determining kit URL"
+echo -e "------> Determining kit URL"
 if ! parseSemver WEBINTAKE_SEMVER "${WEBINTAKE_VERSION}"; then
-  echo "An error occurred while parsing Webintake version ${WEBINTAKE_VERSION}" >&2
+  echo -e "An error occurred while parsing Webintake version ${WEBINTAKE_VERSION}" >&2
   exit 1
 fi
 
@@ -231,21 +296,22 @@ declare KIT_URL="https://access.my-nx.com/artifactory/nxgp-webintake-generic-dev
 declare KIT_URL="${KIT_URL}/${WEBINTAKE_VERSION}/webintake-installation-kit-${WEBINTAKE_VERSION}.tar"
 
 
-echo "------> Stopping Webintake"
+echo -e "------> Stopping Webintake"
 serverLocalCommand stop
 
 #echo "------> Deleting Webintake directory: ${GPROOT}"
 #[[ -d "${GPROOT}" ]] && rm -rf "${GPROOT}"
 
-echo "------> Backing up Webintake directory: ${GPROOT}"
-[[ -d "${GPROOT}" ]] && mv "${GPROOT}" "${GPROOT}.bckp.${TODAY}"
+echo -e "------> Backing up Webintake directory: ${GPROOT}"
+declare GPROOT_OLD="${GPROOT}.bckp.${TODAY}"
+[[ -d "${GPROOT}" ]] && mv "${GPROOT}" "${GPROOT_OLD}"
 
 #echo "------> Deleting Webintake directory: webintake"
 #rm -rf webintake
 
 #echo "------> Deleting Webintake kit directory: ${WEBINTAKE_KIT_PATH}"
 #[[ -d "${WEBINTAKE_KIT_PATH}" ]] && rm -rf "${WEBINTAKE_KIT_PATH}"
-echo "------> Deleting Webintake kit directory: ${INSTALL_DIR}"
+echo -e "------> Deleting Webintake kit directory: ${INSTALL_DIR}"
 [[ -d "${INSTALL_DIR}" ]] && rm -rf "${INSTALL_DIR}"
 
 #echo "------> Deleting Webintake kit file: ${KIT_FILENAME}"
@@ -255,29 +321,29 @@ echo "------> Deleting Webintake kit directory: ${INSTALL_DIR}"
 mkdir -p "${INSTALL_DIR}"
 cd "${INSTALL_DIR}" || exit 1
 
-echo "------> Downloading Webintake kit from URL: ${KIT_URL}"
+echo -e "------> Downloading Webintake kit from URL: ${KIT_URL}"
 curl -f -L --insecure "${KIT_URL}" -o "${KIT_FILENAME}"
 
-echo "------> Extracting Webintake kit"
+echo -e "------> Extracting Webintake kit"
 tar xvf "${KIT_FILENAME}"
 
 
 cd "${WEBINTAKE_KIT_PATH}" || exit 1
 
-echo "------> Modifying common.properties file: ${COMMON_PROPERTIES_FILE}"
+echo -e "------> Modifying common.properties file: ${COMMON_PROPERTIES_FILE}"
 sed -e 's/\(.*\) = \(.*\)/\1 = \${\1:-\2}/g' -i "${COMMON_PROPERTIES_FILE}"
 
 # Special part if dropping and initializing databases:
 # - install minimal Webintake installation (no Keycloak, no database update, ...)
 # - launch scripts to drop databases schemas
 if [[ "${DROP_INIT_DB}" == "Y" ]]; then
-  echo "------> Retrieving DB passwords"
+  echo -e "------> Retrieving DB passwords"
   declare WEBINTAKE_DB_PASSWORD
   WEBINTAKE_DB_PASSWORD="$(getPassword webintake)"
   declare KEYCLOAK_DB_PASSWORD
   KEYCLOAK_DB_PASSWORD="$(getPassword keycloak)"
 
-  echo "------> Launching Minimal Webintake installation to drop database schema"
+  echo -e "------> Launching Minimal Webintake installation to drop database schema"
   installWebintake "N" "N" "N"
 
   dropSchema webintake "${WEBINTAKE_DB_PASSWORD}"
@@ -289,24 +355,66 @@ if [[ "${DROP_INIT_DB}" == "Y" ]]; then
 
 fi
 
-echo "------> Launching Webintake installation"
-installWebintake "${INSTALL_KEYCLOAK}" "Y" "${DROP_INIT_DB}"
+# Fix FK_JAC_SIT error for 5.1.x versions
+#if [[ "$WEBINTAKE_CURRENT_VERSION" < "$COMPARE_VERSION" ]]; then
+#  echo -e "------> Fix FK_JAC_SIT"
+#  source ${GPROOT_OLD}/install/scripts/database/liquibase/env.sh
+#  WitQueries "${webintake_db_user}" "${webintake_db_password}" "${webintake_db_host}" "${webintake_db_port}" "${webintake_db_oracle_service_name}";
+#    echo -e "Fix FK_JAC_SIT completed successfully."
+#fi
+
+set +e
+# WIT Installation
+echo -e "------> Launching Webintake installation"
+if installWebintake "${INSTALL_KEYCLOAK}" "Y" "${DROP_INIT_DB}"; then
+    echo -e "Install completed successfully."
+else
+    if [[ "$WEBINTAKE_CURRENT_VERSION" < "$COMPARE_VERSION" ]]; then
+        echo -e "Installation failed."
+        echo -e "------> Fix FK_JAC_SIT"
+        source "${GPROOT_OLD}/install/scripts/database/liquibase/env.sh"
+        WitQueries "${webintake_db_user}" "${webintake_db_password}" "${webintake_db_host}" "${webintake_db_port}" "${webintake_db_oracle_service_name}"
+        echo -e "------> Executing setup.sh - resumeInstallation"
+        resumeInstallation
+        #echo -e "------> Executing create-upgrade-schema.sh"
+        #bash -x "${GPROOT}/install/scripts/database/create-upgrade-schema.sh"
+        #echo -e "------> Encrypting Webintake database password"
+        #source "${GPROOT_OLD}/install/scripts/database/liquibase/env.sh"
+        #bash -x "${GPROOT}/install/setup/encrypt-passwords.sh"
+        #echo -e "------> Anonymizing Passwords"
+        #source "${GPROOT_OLD}/install/scripts/database/liquibase/env.sh"
+        #bash -x "${GPROOT}/install/setup/anonymize-passwords.sh"
+    else
+        echo -e "Installation failed. Please check the logs"
+        exit 1
+    fi
+fi
+set -e
+
+# Fix distiller PDF files
+echo -e "------> CORE queries to distill PDF files"
+CoreQueries "${runtime_db_user}" "${runtime_db_password}" "${runtime_db_host}" "${runtime_db_port}" "${runtime_db_oracle_service_name}";
 
 #echo "------> Creating symbolic link: webintake -> ${WEBINTAKE_INSTALLATION_PATH}"
 #cd "$HOME" || exit 1
 #ln -s "${WEBINTAKE_INSTALLATION_PATH}" webintake
 
-echo "------> Launching Webintake"
+echo -e "------> Launching Webintake"
 serverLocalCommand start
 
 # Check if the installation directory exists before deleting it
 if [[ -d "${INSTALL_DIR}" ]]; then
   rm -rf "${INSTALL_DIR}"
-  echo "The installation directory has been successfully deleted."
+  echo -e "The installation directory has been successfully deleted."
 else
-  echo "The installation directory does not exist."
+  echo -e "The installation directory does not exist."
 fi
+
+#Completed
+#CompletedMsg
 
 echo -e "\e[32m####################################################################\e[0m"
 echo -e "\e[32mInstallation of webintake ${WEBINTAKE_VERSION} finished with Success\e[0m"
 echo -e "\e[32m####################################################################\e[0m"
+
+exit 1
